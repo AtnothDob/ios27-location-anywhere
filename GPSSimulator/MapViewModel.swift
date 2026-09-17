@@ -141,16 +141,65 @@ final class MapViewModel: ObservableObject {
 
     private var searchTask: Task<Void, Never>?
 
+    // MARK: - Camera Tracking & Zoom Control
+    var currentCameraCenter: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090)
+    var currentCameraDistance: Double = 2500.0
+    var currentCameraHeading: Double = 0.0
+    var currentCameraPitch: Double = 0.0
+
+    func updateCameraContext(_ context: MapCameraUpdateContext) {
+        currentCameraCenter = context.camera.centerCoordinate
+        currentCameraDistance = context.camera.distance
+        currentCameraHeading = context.camera.heading
+        currentCameraPitch = context.camera.pitch
+    }
+
+    func zoomIn() {
+        let newDistance = max(50.0, currentCameraDistance * 0.5)
+        currentCameraDistance = newDistance
+        withAnimation(.easeInOut(duration: 0.25)) {
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: currentCameraCenter,
+                    distance: newDistance,
+                    heading: currentCameraHeading,
+                    pitch: currentCameraPitch
+                )
+            )
+        }
+    }
+
+    func zoomOut() {
+        let newDistance = min(25_000_000.0, currentCameraDistance * 2.0)
+        currentCameraDistance = newDistance
+        withAnimation(.easeInOut(duration: 0.25)) {
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: currentCameraCenter,
+                    distance: newDistance,
+                    heading: currentCameraHeading,
+                    pitch: currentCameraPitch
+                )
+            )
+        }
+    }
+
     // MARK: Center on coordinate
     func moveTo(coordinate: CLLocationCoordinate2D, meters: Double = 2000) {
-        cameraPosition = .region(
-            MKCoordinateRegion(
-                center: coordinate,
-                latitudinalMeters: meters,
-                longitudinalMeters: meters
+        currentCameraCenter = coordinate
+        currentCameraDistance = meters
+        withAnimation(.easeInOut(duration: 0.35)) {
+            cameraPosition = .camera(
+                MapCamera(
+                    centerCoordinate: coordinate,
+                    distance: meters,
+                    heading: 0,
+                    pitch: 0
+                )
             )
-        )
+        }
     }
+
 
     // MARK: Search Location via MKLocalSearch
     func search(query: String) {

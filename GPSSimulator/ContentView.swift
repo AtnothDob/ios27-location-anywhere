@@ -935,6 +935,9 @@ struct ContentView: View {
                     }
                 }
                 .mapStyle(mapVM.selectedMapStyle.mapStyle)
+                .onMapCameraChange(frequency: .continuous) { context in
+                    mapVM.updateCameraContext(context)
+                }
                 .onTapGesture { screenPoint in
                     if let coord = proxy.convert(screenPoint, from: .local) {
                         mapVM.targetCoordinate = coord
@@ -944,7 +947,7 @@ struct ContentView: View {
                 }
             }
 
-            // 顶部悬浮工具条 (搜索 + 地图样式 + 定位按钮)
+            // 顶部悬浮工具条 (搜索 + 地图样式 + 缩放 + 定位按钮)
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     // 搜索输入框
@@ -980,6 +983,29 @@ struct ContentView: View {
                     .pickerStyle(.segmented)
                     .frame(width: 140)
 
+                    // 顶部快捷缩放按钮
+                    HStack(spacing: 2) {
+                        Button {
+                            mapVM.zoomIn()
+                        } label: {
+                            Image(systemName: "plus")
+                                .frame(width: 14, height: 14)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("放大地图 (Cmd +)")
+                        .keyboardShortcut("+", modifiers: .command)
+
+                        Button {
+                            mapVM.zoomOut()
+                        } label: {
+                            Image(systemName: "minus")
+                                .frame(width: 14, height: 14)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("缩小地图 (Cmd -)")
+                        .keyboardShortcut("-", modifiers: .command)
+                    }
+
                     // 归位到当前模拟点按钮
                     Button {
                         if let current = gps.currentCoord {
@@ -989,7 +1015,7 @@ struct ContentView: View {
                         }
                     } label: {
                         Image(systemName: "location")
-                            .padding(6)
+                            .frame(width: 14, height: 14)
                     }
                     .buttonStyle(.bordered)
                     .help("视角移动到当前坐标")
@@ -1037,8 +1063,68 @@ struct ContentView: View {
 
                 Spacer()
             }
+
+            // 右下角悬浮地图控制器 (放大、缩小、复位视角)
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    VStack(spacing: 0) {
+                        Button {
+                            mapVM.zoomIn()
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(width: 34, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("放大地图 (Zoom In)")
+
+                        Divider().frame(width: 26)
+
+                        Button {
+                            mapVM.zoomOut()
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: 14, weight: .bold))
+                                .frame(width: 34, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("缩小地图 (Zoom Out)")
+
+                        Divider().frame(width: 26)
+
+                        Button {
+                            if let current = gps.currentCoord {
+                                mapVM.moveTo(coordinate: current)
+                            } else {
+                                mapVM.moveTo(coordinate: mapVM.targetCoordinate)
+                            }
+                        } label: {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.blue)
+                                .frame(width: 34, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("视角移动到当前坐标")
+                    }
+                    .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.16), radius: 6, x: 0, y: 2)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 24)
+                }
+            }
         }
     }
+
 }
 
 // MARK: - Preview
