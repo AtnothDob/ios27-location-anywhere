@@ -3,6 +3,53 @@ import SwiftUI
 import MapKit
 import Combine
 
+// MARK: - Universal Coordinate Parser
+
+struct CoordinateParser {
+    static func parse(text: String) -> (lat: Double, lon: Double)? {
+        var str = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        str = str.replacingOccurrences(of: "，", with: ",")
+        str = str.replacingOccurrences(of: "；", with: ",")
+        str = str.replacingOccurrences(of: ";", with: ",")
+        str = str.replacingOccurrences(of: "°", with: "")
+        str = str.replacingOccurrences(of: "\"", with: "")
+        str = str.replacingOccurrences(of: "“", with: "")
+        str = str.replacingOccurrences(of: "”", with: "")
+        str = str.replacingOccurrences(of: "’", with: "")
+        str = str.replacingOccurrences(of: "'", with: "")
+
+        var isSouth = false
+        var isWest = false
+        let upper = str.uppercased()
+        if upper.contains("S") || upper.contains("南纬") { isSouth = true }
+        if upper.contains("W") || upper.contains("西经") { isWest = true }
+
+        var filtered = str
+        for token in ["北纬", "南纬", "东经", "西经", "LAT:", "LON:", "LNG:", "LAT", "LON", "LNG", "N", "S", "E", "W"] {
+            filtered = filtered.replacingOccurrences(of: token, with: "", options: NSString.CompareOptions.caseInsensitive)
+        }
+
+        let parts = filtered.components(separatedBy: CharacterSet(charactersIn: ",/ \t|"))
+            .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if parts.count >= 2, let v1 = Double(parts[0]), let v2 = Double(parts[1]) {
+            var lat = v1
+            var lon = v2
+            if abs(v1) > 90.0 && abs(v2) <= 90.0 {
+                lat = v2
+                lon = v1
+            }
+            if isSouth && lat > 0 { lat = -lat }
+            if isWest && lon > 0 { lon = -lon }
+            if lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0 {
+                return (lat, lon)
+            }
+        }
+        return nil
+    }
+}
+
 // MARK: - Search Result Model
 
 struct SearchPlace: Identifiable, Hashable {
@@ -10,6 +57,7 @@ struct SearchPlace: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let coordinate: CLLocationCoordinate2D
+    var sourceTag: String? = nil
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -18,6 +66,7 @@ struct SearchPlace: Identifiable, Hashable {
         lhs.id == rhs.id
     }
 }
+
 
 // MARK: - Waypoint Model
 
@@ -201,11 +250,27 @@ final class MapViewModel: ObservableObject {
     }
 
 
-    // MARK: Search Location via MKLocalSearch
+    // MARK: - Global Search (Apple Maps + OpenStreetMap Nominatim + Photon Fallback + Coordinate Parsing)
     func search(query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             searchResults = []
+            isSearching = false
+            return
+        }
+
+        // 1. Direct coordinate entry check
+        if let parsed = CoordinateParser.parse(text: trimmed) {
+            searchTask?.cancel()
+            searchResults = [
+                SearchPlace(
+                    title: "📍 经纬度坐标直达",
+                    subtitle: String(format: "纬度: %.5f, 经度: %.5f", parsed.lat, parsed.lon),
+                    coordinate: CLLocationCoordinate2D(latitude: parsed.lat, longitude: parsed.lon),
+                    sourceTag: "坐标"
+                )
+            ]
+            isSearching = false
             return
         }
 
@@ -213,32 +278,149 @@ final class MapViewModel: ObservableObject {
         isSearching = true
 
         searchTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
+            try? await Task.sleep(nanoseconds: 280_000_000) // 280ms debounce
             guard !Task.isCancelled else { return }
 
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = trimmed
-            let search = MKLocalSearch(request: request)
+            async let appleResults = self.fetchAppleMaps(query: trimmed)
+            async let globalResults = self.fetchGlobal(query: trimmed)
 
-            do {
-                let response = try await search.start()
-                guard !Task.isCancelled else { return }
-                self.searchResults = response.mapItems.map { item in
-                    SearchPlace(
-                        title: item.name ?? "未知地点",
-                        subtitle: item.placemark.title ?? "",
-                        coordinate: item.placemark.coordinate
-                    )
+            let (apple, global) = await (appleResults, globalResults)
+            guard !Task.isCancelled else { return }
+
+            var combined: [SearchPlace] = []
+            var seenCoords: [CLLocationCoordinate2D] = []
+
+            func isDuplicate(_ coord: CLLocationCoordinate2D) -> Bool {
+                for c in seenCoords {
+                    let dLat = abs(c.latitude - coord.latitude)
+                    let dLon = abs(c.longitude - coord.longitude)
+                    if dLat < 0.003 && dLon < 0.003 {
+                        return true
+                    }
                 }
-                self.isSearching = false
-            } catch {
-                if !Task.isCancelled {
-                    self.searchResults = []
-                    self.isSearching = false
+                return false
+            }
+
+            // Global search results first (covers international addresses, Irvine, Apple Park, etc.)
+            for item in global {
+                if !isDuplicate(item.coordinate) {
+                    combined.append(item)
+                    seenCoords.append(item.coordinate)
                 }
             }
+            // Apple Maps results (covers local Chinese POIs)
+            for item in apple {
+                if !isDuplicate(item.coordinate) {
+                    combined.append(item)
+                    seenCoords.append(item.coordinate)
+                }
+            }
+
+            self.searchResults = combined
+            self.isSearching = false
         }
     }
+
+    private func fetchAppleMaps(query: String) async -> [SearchPlace] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        let search = MKLocalSearch(request: request)
+        do {
+            let response = try await search.start()
+            return response.mapItems.map { item in
+                SearchPlace(
+                    title: item.name ?? "未知地点",
+                    subtitle: item.placemark.title ?? "",
+                    coordinate: item.placemark.coordinate,
+                    sourceTag: "Apple"
+                )
+            }
+        } catch {
+            return []
+        }
+    }
+
+    private func fetchGlobal(query: String) async -> [SearchPlace] {
+        if let nominatim = await fetchNominatim(query: query), !nominatim.isEmpty {
+            return nominatim
+        }
+        return await fetchPhoton(query: query)
+    }
+
+    private func fetchNominatim(query: String) async -> [SearchPlace]? {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://nominatim.openstreetmap.org/search?q=\(encoded)&format=json&limit=6&accept-language=zh-CN,zh,en") else {
+            return nil
+        }
+        var req = URLRequest(url: url)
+        req.setValue("GPSSimulator/1.0", forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 3.0
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let httpResp = resp as? HTTPURLResponse, httpResp.statusCode == 200 else { return nil }
+            struct Item: Decodable {
+                let lat: String
+                let lon: String
+                let display_name: String
+                let name: String?
+            }
+            let list = try JSONDecoder().decode([Item].self, from: data)
+            return list.compactMap { p in
+                guard let lat = Double(p.lat), let lon = Double(p.lon) else { return nil }
+                let parts = p.display_name.components(separatedBy: ",")
+                let title = (p.name?.isEmpty == false ? p.name! : parts.first?.trimmingCharacters(in: .whitespaces)) ?? "未知地点"
+                let subtitle = parts.dropFirst().joined(separator: ", ").trimmingCharacters(in: .whitespaces)
+                return SearchPlace(title: title, subtitle: subtitle, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon), sourceTag: "全球")
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    private func fetchPhoton(query: String) async -> [SearchPlace] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://photon.komoot.io/api/?q=\(encoded)&limit=6&lang=default") else {
+            return []
+        }
+        var req = URLRequest(url: url)
+        req.setValue("GPSSimulator/1.0", forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 3.0
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let httpResp = resp as? HTTPURLResponse, httpResp.statusCode == 200 else { return [] }
+            struct Feature: Decodable {
+                struct Properties: Decodable {
+                    let name: String?
+                    let city: String?
+                    let state: String?
+                    let country: String?
+                }
+                struct Geometry: Decodable {
+                    let coordinates: [Double]
+                }
+                let properties: Properties
+                let geometry: Geometry
+            }
+            struct PhotonResponse: Decodable {
+                let features: [Feature]
+            }
+            let res = try JSONDecoder().decode(PhotonResponse.self, from: data)
+            return res.features.compactMap { f in
+                guard f.geometry.coordinates.count >= 2 else { return nil }
+                let lon = f.geometry.coordinates[0]
+                let lat = f.geometry.coordinates[1]
+                let title = f.properties.name ?? f.properties.city ?? "未知地点"
+                let subParts = [f.properties.city, f.properties.state, f.properties.country].compactMap { $0 }.filter { $0 != title }
+                let subtitle = subParts.joined(separator: ", ")
+                return SearchPlace(title: title, subtitle: subtitle, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon), sourceTag: "全球")
+            }
+        } catch {
+            return []
+        }
+    }
+
 
     // MARK: Waypoint Management
     func addWaypoint(coordinate: CLLocationCoordinate2D, name: String? = nil) {

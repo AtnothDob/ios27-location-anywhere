@@ -313,35 +313,78 @@ struct ContentView: View {
                 }
 
                 // 坐标输入行
-                HStack(spacing: 12) {
-                    HStack(spacing: 4) {
-                        Text("纬度:").font(.caption).foregroundStyle(.secondary)
-                        TextField("37.33490", text: $latText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 100)
-                    }
-                    HStack(spacing: 4) {
-                        Text("经度:").font(.caption).foregroundStyle(.secondary)
-                        TextField("-122.00900", text: $lonText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 100)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Text("纬度:").font(.caption).foregroundStyle(.secondary)
+                            TextField("37.33490", text: $latText)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 95)
+                                .onChange(of: latText) { _, newText in
+                                    handleLatChange(newText)
+                                }
+                                .onSubmit {
+                                    centerMapOnInputs()
+                                }
+                        }
+                        HStack(spacing: 4) {
+                            Text("经度:").font(.caption).foregroundStyle(.secondary)
+                            TextField("-122.00900", text: $lonText)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 95)
+                                .onChange(of: lonText) { _, newText in
+                                    handleLonChange(newText)
+                                }
+                                .onSubmit {
+                                    centerMapOnInputs()
+                                }
+                        }
+
+                        // 一键读取剪贴板坐标
+                        Button {
+                            pasteCoordinates()
+                        } label: {
+                            Image(systemName: "doc.on.clipboard")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("一键读取剪贴板坐标 (支持 33.6846, -117.8265 各种格式)")
+
+                        // 定位视角到当前输入
+                        Button {
+                            centerMapOnInputs()
+                        } label: {
+                            Image(systemName: "scope")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("视角居中定位到输入坐标 (回车键)")
+
+                        // 从地图当前选点同步
+                        Button {
+                            syncFromMapTarget()
+                        } label: {
+                            Image(systemName: "arrow.down.left.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("将右侧地图当前选点填入输入框")
                     }
 
-                    Button {
-                        syncFromMapTarget()
-                    } label: {
-                        Image(systemName: "mappin.and.ellipse")
+                    // 坐标格式有效性提示
+                    if let lat = Double(latText.trimmingCharacters(in: .whitespaces)),
+                       let lon = Double(lonText.trimmingCharacters(in: .whitespaces)),
+                       (-90...90).contains(lat) && (-180...180).contains(lon) {
+                        // 坐标合法
+                    } else {
+                        Text("⚠️ 请输入有效经纬度（纬度 -90~90，经度 -180~180）或点击📋一键粘贴")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
                     }
-                    .help("从右侧地图选点同步坐标")
-
-                    Spacer()
                 }
 
                 // 瞬移按钮
                 Button {
                     guard !selectedUDID.isEmpty,
-                          let lat = Double(latText),
-                          let lon = Double(lonText) else { return }
+                          let lat = Double(latText.trimmingCharacters(in: .whitespaces)),
+                          let lon = Double(lonText.trimmingCharacters(in: .whitespaces)) else { return }
                     gps.teleport(lat: lat, lon: lon, udid: selectedUDID)
                     mapVM.moveTo(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
                 } label: {
@@ -350,7 +393,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
-                .disabled(selectedUDID.isEmpty)
+                .disabled(selectedUDID.isEmpty || Double(latText.trimmingCharacters(in: .whitespaces)) == nil || Double(lonText.trimmingCharacters(in: .whitespaces)) == nil)
+
 
                 Divider()
 
@@ -459,6 +503,60 @@ struct ContentView: View {
         lonText = String(format: "%.5f", mapVM.targetCoordinate.longitude)
         GPSLogger.shared.add("已从地图选点同步坐标: \(latText), \(lonText)")
     }
+
+    private func pasteCoordinates() {
+        if let str = NSPasteboard.general.string(forType: .string),
+           let parsed = CoordinateParser.parse(text: str) {
+            latText = String(format: "%.5f", parsed.lat)
+            lonText = String(format: "%.5f", parsed.lon)
+            mapVM.targetCoordinate = CLLocationCoordinate2D(latitude: parsed.lat, longitude: parsed.lon)
+            mapVM.moveTo(coordinate: mapVM.targetCoordinate)
+            GPSLogger.shared.add("已从剪贴板一键粘贴坐标: \(latText), \(lonText)")
+        } else {
+            GPSLogger.shared.add("⚠️ 剪贴板中未找到有效经纬度格式 (例如 33.6846, -117.8265)")
+        }
+    }
+
+    private func centerMapOnInputs() {
+        guard let lat = Double(latText.trimmingCharacters(in: .whitespaces)),
+              let lon = Double(lonText.trimmingCharacters(in: .whitespaces)),
+              (-90...90).contains(lat) && (-180...180).contains(lon) else {
+            GPSLogger.shared.add("⚠️ 请输入有效的经纬度数值 (纬度 -90~90, 经度 -180~180)")
+            return
+        }
+        mapVM.targetCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        mapVM.moveTo(coordinate: mapVM.targetCoordinate)
+        GPSLogger.shared.add("地图视角已居中至: \(latText), \(lonText)")
+    }
+
+    private func handleLatChange(_ newText: String) {
+        if let parsed = CoordinateParser.parse(text: newText) {
+            latText = String(format: "%.5f", parsed.lat)
+            lonText = String(format: "%.5f", parsed.lon)
+            mapVM.targetCoordinate = CLLocationCoordinate2D(latitude: parsed.lat, longitude: parsed.lon)
+            mapVM.moveTo(coordinate: mapVM.targetCoordinate)
+            GPSLogger.shared.add("已自动识别粘贴经纬度对: \(latText), \(lonText)")
+        } else if let lat = Double(newText.trimmingCharacters(in: .whitespaces)),
+                  let lon = Double(lonText.trimmingCharacters(in: .whitespaces)),
+                  (-90...90).contains(lat) && (-180...180).contains(lon) {
+            mapVM.targetCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+    }
+
+    private func handleLonChange(_ newText: String) {
+        if let parsed = CoordinateParser.parse(text: newText) {
+            latText = String(format: "%.5f", parsed.lat)
+            lonText = String(format: "%.5f", parsed.lon)
+            mapVM.targetCoordinate = CLLocationCoordinate2D(latitude: parsed.lat, longitude: parsed.lon)
+            mapVM.moveTo(coordinate: mapVM.targetCoordinate)
+            GPSLogger.shared.add("已自动识别粘贴经纬度对: \(latText), \(lonText)")
+        } else if let lat = Double(latText.trimmingCharacters(in: .whitespaces)),
+                  let lon = Double(newText.trimmingCharacters(in: .whitespaces)),
+                  (-90...90).contains(lat) && (-180...180).contains(lon) {
+            mapVM.targetCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+    }
+
 
     // MARK: - Tab 2: Route Navigation Section
     var routeSection: some View {
@@ -954,10 +1052,21 @@ struct ContentView: View {
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
-                        TextField("搜索全球地名 / 景点 / 道路 (如 Apple Park, 尖沙咀)...", text: $mapVM.searchQuery)
+                        TextField("搜索全球地名 / 景点 / 道路 / 坐标 (如 尔湾, Irvine, Apple Park)...", text: $mapVM.searchQuery)
                             .textFieldStyle(.plain)
                             .onChange(of: mapVM.searchQuery) { _, query in
                                 mapVM.search(query: query)
+                            }
+                            .onSubmit {
+                                if let first = mapVM.searchResults.first {
+                                    mapVM.targetCoordinate = first.coordinate
+                                    latText = String(format: "%.5f", first.coordinate.latitude)
+                                    lonText = String(format: "%.5f", first.coordinate.longitude)
+                                    mapVM.moveTo(coordinate: first.coordinate)
+                                    mapVM.searchResults = []
+                                    mapVM.searchQuery = first.title
+                                    GPSLogger.shared.add("已从搜索定位至: \(first.title) (\(latText), \(lonText))")
+                                }
                             }
                         if !mapVM.searchQuery.isEmpty {
                             Button {
@@ -1022,10 +1131,10 @@ struct ContentView: View {
                 }
                 .padding(10)
 
-                // 搜索联想结果弹出层
+                // 搜索联想结果弹出层 (支持全球与坐标直达)
                 if !mapVM.searchResults.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(mapVM.searchResults.prefix(6)) { place in
+                        ForEach(mapVM.searchResults.prefix(8)) { place in
                             Button {
                                 mapVM.targetCoordinate = place.coordinate
                                 latText = String(format: "%.5f", place.coordinate.latitude)
@@ -1033,18 +1142,32 @@ struct ContentView: View {
                                 mapVM.moveTo(coordinate: place.coordinate)
                                 mapVM.searchResults = []
                                 mapVM.searchQuery = place.title
+                                GPSLogger.shared.add("已从搜索定位至: \(place.title) (\(latText), \(lonText))")
                             } label: {
-                                HStack {
-                                    Image(systemName: "mappin")
-                                        .foregroundStyle(.red)
+                                HStack(spacing: 8) {
+                                    Image(systemName: place.sourceTag == "坐标" ? "location.circle.fill" : "mappin.circle.fill")
+                                        .foregroundStyle(place.sourceTag == "坐标" ? .blue : .red)
+                                        .font(.system(size: 14))
+
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(place.title)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
+                                        HStack(spacing: 6) {
+                                            Text(place.title)
+                                                .font(.subheadline.bold())
+                                                .foregroundStyle(.primary)
+                                            if let tag = place.sourceTag {
+                                                Text(tag)
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
                                         if !place.subtitle.isEmpty {
                                             Text(place.subtitle)
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
+                                                .lineLimit(1)
                                         }
                                     }
                                     Spacer()
@@ -1055,11 +1178,12 @@ struct ContentView: View {
                             Divider()
                         }
                     }
-                    .frame(maxWidth: 460)
+                    .frame(maxWidth: 480)
                     .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 8))
                     .shadow(radius: 6)
                     .padding(.horizontal, 10)
                 }
+
 
                 Spacer()
             }
