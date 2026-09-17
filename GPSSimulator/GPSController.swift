@@ -51,6 +51,8 @@ struct Preset: Identifiable, Hashable, Codable {
 
 let kDefaultPresets: [Preset] = [
     Preset(name: "🇺🇸 苹果总部 Apple Park (CA)",             lat: 37.3349,   lon: -122.0090),
+    Preset(name: "🇺🇸 洛杉矶尔湾 (Irvine, CA)",               lat: 33.6846,   lon: -117.8265),
+    Preset(name: "🇺🇸 尔湾光谱中心 (Irvine Spectrum, CA)",     lat: 33.6509,   lon: -117.7443),
     Preset(name: "🇺🇸 纽约中央公园 (Central Park, NY)",        lat: 40.785091, lon: -73.968285),
     Preset(name: "🇺🇸 旧金山金门大桥 (Golden Gate, SF)",       lat: 37.8199,   lon: -122.4783),
     Preset(name: "🇭🇰 香港中环维港 (Victoria Harbour, HK)",   lat: 22.2855,   lon:  114.1577),
