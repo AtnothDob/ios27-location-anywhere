@@ -69,36 +69,6 @@ enum SpeedMode: String, CaseIterable, Identifiable {
         case .highway: return 90.0 / 3.6
         }
     }
-
-    var radius: Double {
-        switch self {
-        case .walk:    return 0.0015
-        case .jog:     return 0.003
-        case .bike:    return 0.006
-        case .cityCar: return 0.012
-        case .highway: return 0.025
-        }
-    }
-
-    var stepSec: Double {
-        switch self {
-        case .walk:    return 1.5
-        case .jog:     return 1.2
-        case .bike:    return 1.0
-        case .cityCar: return 0.8
-        case .highway: return 0.6
-        }
-    }
-
-    var angleStep: Double {
-        switch self {
-        case .walk:    return 0.06
-        case .jog:     return 0.09
-        case .bike:    return 0.12
-        case .cityCar: return 0.16
-        case .highway: return 0.20
-        }
-    }
 }
 
 // MARK: - Device Scanner

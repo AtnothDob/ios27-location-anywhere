@@ -13,6 +13,8 @@
 		AA000004 /* GPSController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100004 /* GPSController.swift */; };
 		AA000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100005 /* Assets.xcassets */; };
 		AA000006 /* MapViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100006 /* MapViewModel.swift */; };
+		AA000007 /* RoamingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100007 /* RoamingEngine.swift */; };
+		AA000008 /* ChinaCoordinateCorrector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100008 /* ChinaCoordinateCorrector.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +24,8 @@
 		AA100004 /* GPSController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSController.swift; sourceTree = "<group>"; };
 		AA100005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA100006 /* MapViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewModel.swift; sourceTree = "<group>"; };
+		AA100007 /* RoamingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoamingEngine.swift; sourceTree = "<group>"; };
+		AA100008 /* ChinaCoordinateCorrector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChinaCoordinateCorrector.swift; sourceTree = "<group>"; };
 		AAPROD001 /* GPSSimulator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GPSSimulator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -52,6 +56,8 @@
 				AA100004 /* GPSController.swift */,
 				AA100005 /* Assets.xcassets */,
 				AA100006 /* MapViewModel.swift */,
+				AA100007 /* RoamingEngine.swift */,
+				AA100008 /* ChinaCoordinateCorrector.swift */,
 			);
 			path = GPSSimulator;
 			sourceTree = "<group>";
@@ -136,6 +142,8 @@
 				AA000003 /* DeviceScanner.swift in Sources */,
 				AA000004 /* GPSController.swift in Sources */,
 				AA000006 /* MapViewModel.swift in Sources */,
+				AA000007 /* RoamingEngine.swift in Sources */,
+				AA000008 /* ChinaCoordinateCorrector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

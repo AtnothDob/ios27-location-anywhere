@@ -166,6 +166,15 @@ final class MapViewModel: ObservableObject {
     // Waypoints (A -> B -> C -> Destination)
     @Published var waypoints: [RouteWaypoint] = []
 
+    // Explicit Start & Destination
+    @Published var startCoordinate: CLLocationCoordinate2D? = nil
+    @Published var startTitle: String = "当前位置"
+    @Published var destinationCoordinate: CLLocationCoordinate2D? = nil
+    @Published var destinationTitle: String = "未选择终点"
+
+    // Camera follow car
+    @Published var isTrackingCar: Bool = true
+
     // Route Preferences
     @Published var avoidHighways: Bool = false
     @Published var avoidTolls: Bool = false
@@ -371,7 +380,9 @@ final class MapViewModel: ObservableObject {
                 let parts = p.display_name.components(separatedBy: ",")
                 let title = (p.name?.isEmpty == false ? p.name! : parts.first?.trimmingCharacters(in: .whitespaces)) ?? "未知地点"
                 let subtitle = parts.dropFirst().joined(separator: ", ").trimmingCharacters(in: .whitespaces)
-                return SearchPlace(title: title, subtitle: subtitle, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon), sourceTag: "全球")
+                let rawCoord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                let coord = ChinaCoordinateCorrector.isInChina(rawCoord) ? ChinaCoordinateCorrector.wgs84ToGcj02(rawCoord) : rawCoord
+                return SearchPlace(title: title, subtitle: subtitle, coordinate: coord, sourceTag: "全球")
             }
         } catch {
             return nil
@@ -414,7 +425,9 @@ final class MapViewModel: ObservableObject {
                 let title = f.properties.name ?? f.properties.city ?? "未知地点"
                 let subParts = [f.properties.city, f.properties.state, f.properties.country].compactMap { $0 }.filter { $0 != title }
                 let subtitle = subParts.joined(separator: ", ")
-                return SearchPlace(title: title, subtitle: subtitle, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon), sourceTag: "全球")
+                let rawCoord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                let coord = ChinaCoordinateCorrector.isInChina(rawCoord) ? ChinaCoordinateCorrector.wgs84ToGcj02(rawCoord) : rawCoord
+                return SearchPlace(title: title, subtitle: subtitle, coordinate: coord, sourceTag: "全球")
             }
         } catch {
             return []
@@ -437,7 +450,26 @@ final class MapViewModel: ObservableObject {
         waypoints.removeAll()
     }
 
-    // MARK: Multi-Leg Route Calculation via Apple Maps MKDirections
+    func setStart(coordinate: CLLocationCoordinate2D, title: String = "") {
+        startCoordinate = coordinate
+        startTitle = title.isEmpty ? String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude) : title
+    }
+
+    func setDestination(coordinate: CLLocationCoordinate2D, title: String = "") {
+        destinationCoordinate = coordinate
+        destinationTitle = title.isEmpty ? String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude) : title
+    }
+
+    func swapStartAndDestination() {
+        let tempCoord = startCoordinate
+        let tempTitle = startTitle
+        startCoordinate = destinationCoordinate
+        startTitle = destinationTitle
+        destinationCoordinate = tempCoord
+        destinationTitle = tempTitle
+    }
+
+    // MARK: Multi-Leg Route Calculation via Apple Maps MKDirections + Global OSRM Fallback
     func calculateRoute(from start: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D, transportType: MKDirectionsTransportType = .automobile) async -> Bool {
         isCalculatingRoute = true
         routeError = nil
@@ -454,11 +486,19 @@ final class MapViewModel: ObservableObject {
         var totalTime: TimeInterval = 0
         var fullMapRect: MKMapRect? = nil
 
-        do {
-            for i in 0..<(stops.count - 1) {
-                let legStart = stops[i]
-                let legEnd = stops[i + 1]
+        for i in 0..<(stops.count - 1) {
+            let legStart = stops[i]
+            let legEnd = stops[i + 1]
+            let inChina = ChinaCoordinateCorrector.isInChina(legStart) && ChinaCoordinateCorrector.isInChina(legEnd)
 
+            var legCoords: [CLLocationCoordinate2D] = []
+            var legSteps: [RouteStepInfo] = []
+            var legDist: Double = 0
+            var legTime: TimeInterval = 0
+            var legSuccess = false
+
+            // 1. 若起点和终点都在中国境内，优先尝试 Apple Maps (高德底层)
+            if inChina {
                 let request = MKDirections.Request()
                 request.source = MKMapItem(placemark: MKPlacemark(coordinate: legStart))
                 request.destination = MKMapItem(placemark: MKPlacemark(coordinate: legEnd))
@@ -468,60 +508,98 @@ final class MapViewModel: ObservableObject {
                 request.tollPreference = avoidTolls ? .avoid : .any
 
                 let directions = MKDirections(request: request)
-                let response = try await directions.calculate()
-                guard let route = response.routes.first else {
-                    throw NSError(domain: "MapViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "段落 \(i+1) 未找到可行路线"])
-                }
+                if let response = try? await directions.calculate(), let route = response.routes.first {
+                    var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: route.polyline.pointCount)
+                    route.polyline.getCoordinates(&coords, range: NSRange(location: 0, length: route.polyline.pointCount))
+                    legCoords = coords
 
-                // 提取 Polyline
-                var legCoords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: route.polyline.pointCount)
-                route.polyline.getCoordinates(&legCoords, range: NSRange(location: 0, length: route.polyline.pointCount))
-                combinedCoords.append(contentsOf: legCoords)
-
-                // 提取 Steps
-                for step in route.steps {
-                    let text = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { continue }
-                    var stepCoord: CLLocationCoordinate2D? = nil
-                    if step.polyline.pointCount > 0 {
-                        var c = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: 1)
-                        step.polyline.getCoordinates(&c, range: NSRange(location: 0, length: 1))
-                        stepCoord = c.first
+                    for step in route.steps {
+                        let text = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else { continue }
+                        var stepCoord: CLLocationCoordinate2D? = nil
+                        if step.polyline.pointCount > 0 {
+                            var c = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: 1)
+                            step.polyline.getCoordinates(&c, range: NSRange(location: 0, length: 1))
+                            stepCoord = c.first
+                        }
+                        legSteps.append(RouteStepInfo(instruction: text, distanceMeters: step.distance, coordinate: stepCoord))
                     }
-                    combinedSteps.append(RouteStepInfo(
-                        instruction: text,
-                        distanceMeters: step.distance,
-                        coordinate: stepCoord
-                    ))
-                }
-
-                totalDist += route.distance
-                totalTime += route.expectedTravelTime
-
-                if let currentRect = fullMapRect {
-                    fullMapRect = currentRect.union(route.polyline.boundingMapRect)
-                } else {
-                    fullMapRect = route.polyline.boundingMapRect
+                    legDist = route.distance
+                    legTime = route.expectedTravelTime
+                    legSuccess = true
+                    if let currentRect = fullMapRect {
+                        fullMapRect = currentRect.union(route.polyline.boundingMapRect)
+                    } else {
+                        fullMapRect = route.polyline.boundingMapRect
+                    }
                 }
             }
 
-            self.routeCoordinates = combinedCoords
-            self.routeSteps = combinedSteps
-            self.routeDestination = destination
-            self.routeDistanceMeters = totalDist
-            self.routeExpectedTravelTime = totalTime
-            self.isCalculatingRoute = false
-
-            if let rect = fullMapRect {
-                self.cameraPosition = .rect(rect)
+            // 2. 境外区域（或境内 Apple Maps 规划失败），启动全球高精度 OSRM HTTPS 真实路网引擎
+            if !legSuccess {
+                let profile = (transportType == .walking) ? "walking" : "driving"
+                if let osrm = await GPSController.fetchOSRMRoute(from: legStart, to: legEnd, profile: profile) {
+                    legCoords = osrm.coords
+                    legSteps = osrm.steps
+                    legDist = osrm.distance
+                    legTime = osrm.duration
+                    legSuccess = true
+                } else if profile == "walking", let osrm = await GPSController.fetchOSRMRoute(from: legStart, to: legEnd, profile: "driving") {
+                    legCoords = osrm.coords
+                    legSteps = osrm.steps
+                    legDist = osrm.distance
+                    legTime = osrm.duration
+                    legSuccess = true
+                }
             }
 
-            return true
-        } catch {
-            self.routeError = "路线计算失败: \(error.localizedDescription)"
-            self.isCalculatingRoute = false
-            return false
+            // 3. 兜底回退：若境外 OSRM 因网络偶发失败，再试一次 Apple Maps
+            if !legSuccess && !inChina {
+                let request = MKDirections.Request()
+                request.source = MKMapItem(placemark: MKPlacemark(coordinate: legStart))
+                request.destination = MKMapItem(placemark: MKPlacemark(coordinate: legEnd))
+                request.transportType = transportType
+                let directions = MKDirections(request: request)
+                if let response = try? await directions.calculate(), let route = response.routes.first {
+                    var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: route.polyline.pointCount)
+                    route.polyline.getCoordinates(&coords, range: NSRange(location: 0, length: route.polyline.pointCount))
+                    legCoords = coords
+                    legDist = route.distance
+                    legTime = route.expectedTravelTime
+                    legSuccess = true
+                    if let currentRect = fullMapRect {
+                        fullMapRect = currentRect.union(route.polyline.boundingMapRect)
+                    } else {
+                        fullMapRect = route.polyline.boundingMapRect
+                    }
+                }
+            }
+
+            guard legSuccess, !legCoords.isEmpty else {
+                self.routeError = "段落 \(i + 1) 未能找到连通的真实道路，请检查网络或更换选点"
+                self.isCalculatingRoute = false
+                return false
+            }
+
+            combinedCoords.append(contentsOf: legCoords)
+            combinedSteps.append(contentsOf: legSteps)
+            totalDist += legDist
+            totalTime += legTime
         }
+
+        self.routeCoordinates = combinedCoords
+        self.routeSteps = combinedSteps
+        self.routeDestination = destination
+        self.routeDistanceMeters = totalDist
+        self.routeExpectedTravelTime = totalTime
+        self.isCalculatingRoute = false
+
+        if combinedCoords.count >= 2 {
+            let polyline = MKPolyline(coordinates: combinedCoords, count: combinedCoords.count)
+            self.cameraPosition = .rect(polyline.boundingMapRect)
+        }
+        GPSLogger.shared.add("🗺️ 成功规划真实道路路线: 全长 \(String(format: "%.2f", totalDist / 1000.0)) km，包含 \(combinedSteps.count) 个路口指引")
+        return true
     }
 
     func clearRoute() {
