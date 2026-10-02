@@ -362,7 +362,7 @@ final class MapViewModel: ObservableObject {
             return nil
         }
         var req = URLRequest(url: url)
-        req.setValue("GPSSimulator/1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue(kHTTPUserAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 3.0
 
         do {
@@ -395,7 +395,7 @@ final class MapViewModel: ObservableObject {
             return []
         }
         var req = URLRequest(url: url)
-        req.setValue("GPSSimulator/1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue(kHTTPUserAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 3.0
 
         do {

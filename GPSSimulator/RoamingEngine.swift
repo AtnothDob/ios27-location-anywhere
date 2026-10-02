@@ -507,10 +507,11 @@ final class RoamingEngine: ObservableObject {
                     let progress = min(1.0, currentDist / totalLegDist)
 
                     // 注入到手机 (带中国区坐标全自动纠偏)
+                    let tickStart = Date()
                     let loopMode = await gps.chinaCorrectionMode
                     let injectCoord = gps.prepareWGS84ForInjection(coord, mode: loopMode)
 
-                    shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f", injectCoord.latitude)) --longitude=\#(String(format:"%.6f", injectCoord.longitude))"#)
+                    injectLocation(injectCoord, udid: udid)
 
                     await MainActor.run {
                         gps.currentCoord = coord
@@ -522,9 +523,8 @@ final class RoamingEngine: ObservableObject {
                         }
                     }
 
-                    let stepIntervalSec: Double = 1.0
-                    try? await Task.sleep(for: .seconds(stepIntervalSec))
-                    currentDist += speedMps * stepIntervalSec
+                    let elapsed = await sleepRemainingTick(since: tickStart, tick: 1.0)
+                    currentDist += speedMps * elapsed
                 }
 
                 if Task.isCancelled { break }
@@ -537,7 +537,7 @@ final class RoamingEngine: ObservableObject {
                 }
 
                 // 驻留倒计时循环（伴随拟真自然抖动）
-                var remaining = staySeconds
+                var remaining = Double(staySeconds)
                 while !Task.isCancelled && remaining > 0 {
                     while await self.isPausedState && !Task.isCancelled {
                         try? await Task.sleep(for: .milliseconds(500))
@@ -552,12 +552,13 @@ final class RoamingEngine: ObservableObject {
                         longitude: toStop.coordinate.longitude + jLon
                     )
 
+                    let tickStart = Date()
                     let loopMode = await gps.chinaCorrectionMode
                     let injectJitter = gps.prepareWGS84ForInjection(jitteredCoord, mode: loopMode)
 
-                    shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f", injectJitter.latitude)) --longitude=\#(String(format:"%.6f", injectJitter.longitude))"#)
+                    injectLocation(injectJitter, udid: udid)
 
-                    let currentRemaining = remaining
+                    let currentRemaining = Int(remaining.rounded(.up))
                     await MainActor.run {
                         gps.currentCoord = jitteredCoord
                         gps.currentCoordString = String(format: "%.5f, %.5f", jitteredCoord.latitude, jitteredCoord.longitude)
@@ -565,9 +566,9 @@ final class RoamingEngine: ObservableObject {
                         self.state = .staying(stopIndex: leg + 1, stopName: toStop.poiName, remainingSeconds: currentRemaining, totalSeconds: staySeconds)
                     }
 
-                    let sleepSec = await self.isAccelerated ? 1 : 2
-                    try? await Task.sleep(for: .seconds(sleepSec))
-                    remaining -= sleepSec
+                    let sleepSec: Double = await self.isAccelerated ? 1 : 2
+                    let elapsed = await sleepRemainingTick(since: tickStart, tick: sleepSec)
+                    remaining -= elapsed
                 }
             }
 

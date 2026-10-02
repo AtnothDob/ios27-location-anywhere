@@ -172,6 +172,22 @@ enum SimulationMode: String {
     case joystick   = "摇杆控制"
 }
 
+// MARK: - Network
+
+/// 公共 OSM 服务（Nominatim / Photon / OSRM）要求请求带上可识别应用来源的 User-Agent
+let kHTTPUserAgent = "GPSSimulator/1.0 (+https://github.com/AtnothDob/ios27-location-anywhere)"
+
+// MARK: - Tick Timing
+
+/// 扣除本节拍已花费的时间（主要是 devicectl 下发耗时）后睡满一个节拍，返回本节拍真实流逝的秒数。
+/// 用真实耗时推进里程，避免 devicectl 较慢时实际速度低于设定值；上限 3 个节拍，防止卡顿后瞬移。
+@discardableResult
+func sleepRemainingTick(since start: Date, tick: Double) async -> Double {
+    let spent = Date().timeIntervalSince(start)
+    try? await Task.sleep(for: .seconds(max(0.05, tick - spent)))
+    return min(Date().timeIntervalSince(start), tick * 3)
+}
+
 // MARK: - GPS Controller
 
 @MainActor
@@ -298,7 +314,7 @@ final class GPSController: ObservableObject {
         GPSLogger.shared.add("下发 Apple 原生轨迹: \(cmd)…")
 
         Task.detached(priority: .userInitiated) {
-            let out = shell(#"xcrun devicectl device simulate location scenario --device "\#(udid)" "\#(cmd)""#)
+            let out = devicectl(["device", "simulate", "location", "scenario", "--device", udid, cmd])
             await MainActor.run {
                 GPSLogger.shared.add("🟢 成功启动 Apple 官方场景: \(label)")
                 if !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -367,7 +383,7 @@ final class GPSController: ObservableObject {
             // 瞬移到起点 (全自动智能纠偏)
             let curMode = await self.chinaCorrectionMode
             let initialInject = self.prepareWGS84ForInjection(startCoord, mode: curMode)
-            _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f", initialInject.latitude)) --longitude=\#(String(format:"%.6f", initialInject.longitude))"#)
+            _ = injectLocation(initialInject, udid: udid)
 
             var distTraveled: Double = 0.0
             let tickInterval: Double = 0.8
@@ -478,11 +494,12 @@ final class GPSController: ObservableObject {
                                     jittered = CLLocationCoordinate2D(latitude: coord.latitude + dLat, longitude: coord.longitude + dLon)
                                 }
 
+                                let tickStart = Date()
                                 let loopMode = await self.chinaCorrectionMode
                                 let injectCoord = self.prepareWGS84ForInjection(jittered, mode: loopMode)
-                                _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f", injectCoord.latitude)) --longitude=\#(String(format:"%.6f", injectCoord.longitude))"#)
+                                _ = injectLocation(injectCoord, udid: udid)
 
-                                try? await Task.sleep(for: .seconds(1.0))
+                                await sleepRemainingTick(since: tickStart, tick: 1.0)
                             }
 
                             lastTrafficLightDist = distTraveled
@@ -517,12 +534,11 @@ final class GPSController: ObservableObject {
                 }
 
                 // 物理下发至真机 (带全自动智能纠偏)
+                let tickStart = Date()
                 let loopMode = await self.chinaCorrectionMode
                 let injectCoord = self.prepareWGS84ForInjection(coord, mode: loopMode)
 
-                let latStr = String(format: "%.6f", injectCoord.latitude)
-                let lonStr = String(format: "%.6f", injectCoord.longitude)
-                _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(latStr) --longitude=\#(lonStr)"#)
+                _ = injectLocation(injectCoord, udid: udid)
 
                 let remDist = max(0.0, totalPathLength - distTraveled)
                 let prog = min(1.0, distTraveled / totalPathLength)
@@ -537,8 +553,8 @@ final class GPSController: ObservableObject {
                     onCoordChange?(coord)
                 }
 
-                try? await Task.sleep(for: .seconds(tickInterval))
-                distTraveled += speedMps * tickInterval
+                let elapsed = await sleepRemainingTick(since: tickStart, tick: tickInterval)
+                distTraveled += speedMps * elapsed
             }
         }
     }
@@ -633,12 +649,11 @@ final class GPSController: ObservableObject {
 
                 let (coord, heading) = self.computeInterpolatedPoint(distance: distTraveled, waypoints: reversedCoords, cumDists: cumDists)
 
+                let tickStart = Date()
                 let loopMode = await self.chinaCorrectionMode
                 let injectCoord = self.prepareWGS84ForInjection(coord, mode: loopMode)
 
-                let latStr = String(format: "%.6f", injectCoord.latitude)
-                let lonStr = String(format: "%.6f", injectCoord.longitude)
-                _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(latStr) --longitude=\#(lonStr)"#)
+                _ = injectLocation(injectCoord, udid: udid)
 
                 let remDist = max(0.0, totalPathLength - distTraveled)
                 let prog = min(1.0, distTraveled / totalPathLength)
@@ -653,8 +668,8 @@ final class GPSController: ObservableObject {
                     onCoordChange?(coord)
                 }
 
-                try? await Task.sleep(for: .seconds(tickInterval))
-                distTraveled += speedMps * tickInterval
+                let elapsed = await sleepRemainingTick(since: tickStart, tick: tickInterval)
+                distTraveled += speedMps * elapsed
             }
         }
     }
@@ -720,7 +735,7 @@ final class GPSController: ObservableObject {
             guard let url = URL(string: urlStr) else { continue }
             var req = URLRequest(url: url)
             req.timeoutInterval = 7.0
-            req.setValue("GPSSimulator/1.0 (Macintosh; Apple Silicon)", forHTTPHeaderField: "User-Agent")
+            req.setValue(kHTTPUserAgent, forHTTPHeaderField: "User-Agent")
             do {
                 let (data, resp) = try await URLSession.shared.data(for: req)
                 guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { continue }
@@ -994,7 +1009,7 @@ final class GPSController: ObservableObject {
         GPSLogger.shared.add("瞬移到坐标: (\(String(format: "%.5f, %.5f", lat, lon)))\(corrTag)…")
 
         Task.detached(priority: .userInitiated) {
-            _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format: "%.6f", injectCoord.latitude)) --longitude=\#(String(format: "%.6f", injectCoord.longitude))"#)
+            _ = injectLocation(injectCoord, udid: udid)
             await MainActor.run {
                 GPSLogger.shared.add("🟢 已定位到: \(self.currentCoordString)\(corrTag)")
                 if self.isJitterEnabled {
@@ -1069,7 +1084,7 @@ final class GPSController: ObservableObject {
                 if Task.isCancelled { break }
 
                 let total = await self.totalRouteDistanceMeters
-                var distTraveled = await self.currentNavDistTraveled
+                let distTraveled = await self.currentNavDistTraveled
                 if distTraveled >= total {
                     // 到达终点
                     await MainActor.run {
@@ -1187,11 +1202,12 @@ final class GPSController: ObservableObject {
                                     jittered = CLLocationCoordinate2D(latitude: coord.latitude + dLat, longitude: coord.longitude + dLon)
                                 }
 
+                                let tickStart = Date()
                                 let loopMode = await self.chinaCorrectionMode
                                 let injectCoord = self.prepareWGS84ForInjection(jittered, mode: loopMode)
-                                _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f", injectCoord.latitude)) --longitude=\#(String(format:"%.6f", injectCoord.longitude))"#)
+                                _ = injectLocation(injectCoord, udid: udid)
 
-                                try? await Task.sleep(for: .seconds(1.0))
+                                await sleepRemainingTick(since: tickStart, tick: 1.0)
                             }
 
                             lastTrafficLightDist = distTraveled
@@ -1226,9 +1242,10 @@ final class GPSController: ObservableObject {
                 }
 
                 // 物理下发至真机 (带全自动智能纠偏)
+                let tickStart = Date()
                 let loopMode = await self.chinaCorrectionMode
                 let injectCoord = self.prepareWGS84ForInjection(coord, mode: loopMode)
-                shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f", injectCoord.latitude)) --longitude=\#(String(format:"%.6f", injectCoord.longitude))"#)
+                injectLocation(injectCoord, udid: udid)
 
                 await MainActor.run {
                     self.updateDisplayCoordStrings(for: coord)
@@ -1252,10 +1269,10 @@ final class GPSController: ObservableObject {
                 }
 
                 // 步进下发间隔
-                try? await Task.sleep(for: .seconds(tickInterval))
-                distTraveled += speedMps * tickInterval
+                let elapsed = await sleepRemainingTick(since: tickStart, tick: tickInterval)
+                let advance = speedMps * elapsed
                 await MainActor.run {
-                    self.currentNavDistTraveled = distTraveled
+                    self.currentNavDistTraveled += advance
                 }
             }
         }
@@ -1289,7 +1306,11 @@ final class GPSController: ObservableObject {
         let injectCoord = prepareWGS84ForInjection(coord, mode: chinaCorrectionMode)
 
         if !currentUdid.isEmpty {
-            shell(#"xcrun devicectl device simulate location coordinate --device "\#(currentUdid)" --latitude \#(String(format:"%.6f", injectCoord.latitude)) --longitude=\#(String(format:"%.6f", injectCoord.longitude))"#)
+            let udid = currentUdid
+            // 后台下发，避免拖动进度条时阻塞主线程
+            Task.detached(priority: .userInitiated) {
+                injectLocation(injectCoord, udid: udid)
+            }
         }
         GPSLogger.shared.add("⏩ 导航跳转至进度 \(Int(clamped * 100))%")
     }
@@ -1358,7 +1379,7 @@ final class GPSController: ObservableObject {
         let injectCoord = prepareWGS84ForInjection(newCoord, mode: chinaCorrectionMode)
 
         Task.detached(priority: .userInitiated) {
-            _ = shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f",injectCoord.latitude)) --longitude=\#(String(format:"%.6f",injectCoord.longitude))"#)
+            _ = injectLocation(injectCoord, udid: udid)
         }
     }
 
@@ -1383,7 +1404,7 @@ final class GPSController: ObservableObject {
                 let loopMode = await self.chinaCorrectionMode
                 let injectCoord = self.prepareWGS84ForInjection(cCoord, mode: loopMode)
 
-                shell(#"xcrun devicectl device simulate location coordinate --device "\#(udid)" --latitude \#(String(format:"%.6f",injectCoord.latitude)) --longitude=\#(String(format:"%.6f",injectCoord.longitude))"#)
+                injectLocation(injectCoord, udid: udid)
 
                 let coordStr = String(format: "%.5f, %.5f", cLat, cLon)
                 await MainActor.run {
@@ -1419,7 +1440,7 @@ final class GPSController: ObservableObject {
         currentScenario = nil
         GPSLogger.shared.add("下发指令: 恢复物理真实 GPS…")
         Task.detached(priority: .userInitiated) {
-            shell(#"xcrun devicectl device simulate location clear --device "\#(udid)""#)
+            devicectl(["device", "simulate", "location", "clear", "--device", udid])
             await MainActor.run {
                 self.currentCoordString = "真实 GPS（未模拟）"
                 GPSLogger.shared.add("🟢 成功恢复手机物理硬件定位！")

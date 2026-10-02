@@ -9,11 +9,13 @@
   - `GPSSimulatorApp.swift`: App 入口与生命周期管理
   - `ContentView.swift`: 主控制面板与 UI 布局（双栏模式、摇杆控制、参数设置、经纬度输入）
   - `MapViewModel.swift`: 地图状态管理、MapKit 交互、航线规划与多源全球搜索（OpenStreetMap / Nominatim + Photon）
-  - `GPSController.swift`: `xcrun devicectl` 通信逻辑、坐标注入、自然漂移（Anti-detection Jitter）
-  - `DeviceScanner.swift`: 官方 JSON 结构化设备扫描器
+  - `GPSController.swift`: 坐标注入、导航 / 场景循环、自然漂移（Anti-detection Jitter）
+  - `RoamingEngine.swift`: 全天智能漫游（周边 POI 检索 + 多站点行程）
+  - `ChinaCoordinateCorrector.swift`: 中国大陆边界判定与 WGS-84 / GCJ-02 / BD-09 坐标互转
+  - `DeviceScanner.swift`: 官方 JSON 结构化设备扫描器，以及 `devicectl()` / `injectLocation()` 命令封装（所有 devicectl 调用都应走这里）
   - `GPSSimulator.entitlements`: 权限配置文件（禁用沙盒以执行底层系统 devicectl 命令行）
   - `Assets.xcassets`: 图标与资产
-- `GPSSimulator.app`: 编译产物（原生 macOS 应用）
+- `GPSSimulator.app`: 本地编译产物（已被 `.gitignore` 忽略，不入库；发布包见 GitHub Releases）
 - `打开GPS轨迹模拟器.command`: 快速启动脚本
 - `GPS_Simulator.py`: 早期 Python 原型参考脚本
 

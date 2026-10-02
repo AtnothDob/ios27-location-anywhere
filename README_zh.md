@@ -115,7 +115,13 @@ open ~/Library/Developer/Xcode/DerivedData/GPSSimulator-*/Build/Products/Debug/G
 
 ## 🔒 隐私与安全性声明
 
-- **100% 本地运行**：所有设备通信指令均通过本地 Unix 域套接字与 `devicectl` 桥接，不建立任何外部中间服务器，不收集任何用户隐私或设备 UDID。
+- **设备通信本地完成**：坐标通过 Mac 本机的 `xcrun devicectl` 直接下发到 USB / 局域网连接的设备，不经过任何中转服务器，也不收集、上传设备 UDID。
+- **会访问的第三方服务**：以下功能需要联网，相关数据会发送给对应的公共服务：
+  - 地点搜索：搜索词发送给 Apple Maps、OpenStreetMap Nominatim、Komoot Photon；
+  - 路线规划：起点 / 终点坐标发送给 Apple Maps 及公共 OSRM 服务器（`router.project-osrm.org`、`routing.openstreetmap.de`）；
+  - 智能漫游：周边 POI 检索通过 Apple Maps 完成。
+  
+  这些公共服务均有调用频率限制，请勿高频滥用。
 - **开源合规**：代码纯净透明，无任何硬编码个人凭据或私有越权行为。
 
 ---
