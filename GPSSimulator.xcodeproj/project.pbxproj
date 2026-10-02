@@ -15,6 +15,9 @@
 		AA000006 /* MapViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100006 /* MapViewModel.swift */; };
 		AA000007 /* RoamingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100007 /* RoamingEngine.swift */; };
 		AA000008 /* ChinaCoordinateCorrector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100008 /* ChinaCoordinateCorrector.swift */; };
+		AA000009 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100009 /* AuthSession.swift */; };
+		AA000010 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100010 /* LoginView.swift */; };
+		AA000011 /* LoginMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100011 /* LoginMapView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +29,9 @@
 		AA100006 /* MapViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewModel.swift; sourceTree = "<group>"; };
 		AA100007 /* RoamingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoamingEngine.swift; sourceTree = "<group>"; };
 		AA100008 /* ChinaCoordinateCorrector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChinaCoordinateCorrector.swift; sourceTree = "<group>"; };
+		AA100009 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
+		AA100010 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		AA100011 /* LoginMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginMapView.swift; sourceTree = "<group>"; };
 		AAPROD001 /* GPSSimulator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GPSSimulator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -58,6 +64,9 @@
 				AA100006 /* MapViewModel.swift */,
 				AA100007 /* RoamingEngine.swift */,
 				AA100008 /* ChinaCoordinateCorrector.swift */,
+				AA100009 /* AuthSession.swift */,
+				AA100010 /* LoginView.swift */,
+				AA100011 /* LoginMapView.swift */,
 			);
 			path = GPSSimulator;
 			sourceTree = "<group>";
@@ -144,6 +153,9 @@
 				AA000006 /* MapViewModel.swift in Sources */,
 				AA000007 /* RoamingEngine.swift in Sources */,
 				AA000008 /* ChinaCoordinateCorrector.swift in Sources */,
+				AA000009 /* AuthSession.swift in Sources */,
+				AA000010 /* LoginView.swift in Sources */,
+				AA000011 /* LoginMapView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

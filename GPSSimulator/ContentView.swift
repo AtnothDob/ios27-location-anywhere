@@ -198,6 +198,9 @@ struct ContentView: View {
         .onAppear {
             syncInitialDevice()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .authSessionWillSignOut)) { _ in
+            gps.stopAll()
+        }
         .onChange(of: scanner.devices) { _, devices in
             selectBestDevice(from: devices)
         }

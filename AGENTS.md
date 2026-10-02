@@ -11,6 +11,9 @@
   - `MapViewModel.swift`: 地图状态管理、MapKit 交互、航线规划与多源全球搜索（OpenStreetMap / Nominatim + Photon）
   - `GPSController.swift`: `xcrun devicectl` 通信逻辑、坐标注入、自然漂移（Anti-detection Jitter）
   - `DeviceScanner.swift`: 官方 JSON 结构化设备扫描器
+  - `AuthSession.swift`: 登录会话状态机与账户服务接口（当前为本地演示服务 `DemoAuthService`）
+  - `LoginView.swift`: 登录界面（账号密码 / 激活码、两步验证、登录成功引导）
+  - `LoginMapView.swift`: 登录界面左侧的地形图动画与色彩令牌 `LoginPalette`
   - `GPSSimulator.entitlements`: 权限配置文件（禁用沙盒以执行底层系统 devicectl 命令行）
   - `Assets.xcassets`: 图标与资产
 - `GPSSimulator.app`: 编译产物（原生 macOS 应用）
