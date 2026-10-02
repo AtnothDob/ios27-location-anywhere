@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import Combine
 
 // MARK: - Models
@@ -180,7 +181,7 @@ func scanPhysicalDevices() async -> [DeviceInfo] {
             let tmpPath = NSTemporaryDirectory() + "devicectl_scan_\(UUID().uuidString).json"
             defer { try? FileManager.default.removeItem(atPath: tmpPath) }
 
-            _ = shell("xcrun devicectl list devices --json-output \"\(tmpPath)\" >/dev/null 2>&1")
+            devicectl(["list", "devices", "--json-output", tmpPath])
 
             if let data = try? Data(contentsOf: URL(fileURLWithPath: tmpPath)),
                let root = try? JSONDecoder().decode(DevicectlRootJSON.self, from: data),
@@ -218,7 +219,7 @@ func scanPhysicalDevices() async -> [DeviceInfo] {
             }
 
             // 备用：纯文本正则回退解析
-            let result = shell("xcrun devicectl list devices 2>&1")
+            let result = devicectl(["list", "devices"])
             var devices: [DeviceInfo] = []
             for line in result.components(separatedBy: "\n") {
                 guard line.lowercased().contains("physical") else { continue }
@@ -253,11 +254,12 @@ func extractUDID(from line: String) -> String? {
     return String(line[range])
 }
 
+/// 直接启动可执行文件，参数逐个传递（不经过 bash 解析），返回合并后的 stdout + stderr
 @discardableResult
-func shell(_ command: String) -> String {
+func runProcess(_ executable: String, _ arguments: [String]) -> String {
     let process = Process()
-    process.launchPath = "/bin/bash"
-    process.arguments = ["-c", command]
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError  = pipe
@@ -269,6 +271,24 @@ func shell(_ command: String) -> String {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
     return String(data: data, encoding: .utf8) ?? ""
+}
+
+/// 执行 `xcrun devicectl <arguments>`
+@discardableResult
+func devicectl(_ arguments: [String]) -> String {
+    runProcess("/usr/bin/xcrun", ["devicectl"] + arguments)
+}
+
+/// 向真机下发一个 WGS-84 坐标。
+/// 经纬度统一使用 `--flag=value` 形式，否则南纬 / 西经的负数会被当成命令行选项解析。
+@discardableResult
+func injectLocation(_ coord: CLLocationCoordinate2D, udid: String) -> String {
+    devicectl([
+        "device", "simulate", "location", "coordinate",
+        "--device", udid,
+        "--latitude=" + String(format: "%.6f", coord.latitude),
+        "--longitude=" + String(format: "%.6f", coord.longitude)
+    ])
 }
 
 // MARK: - Logger

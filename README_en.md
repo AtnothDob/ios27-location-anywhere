@@ -115,7 +115,13 @@ open ~/Library/Developer/Xcode/DerivedData/GPSSimulator-*/Build/Products/Debug/G
 
 ## 🔒 Privacy & Security
 
-- **100% Local Execution**: All communication with connected devices is handled over local Unix domain sockets and `devicectl`. No external proxy servers are used, and no user data or device UDIDs are ever collected.
+- **Device communication stays local**: Coordinates are sent straight from your Mac to the USB / Wi-Fi connected device via `xcrun devicectl`. No relay server is involved, and device UDIDs are never collected or uploaded.
+- **Third-party services used**: The following features need network access and send data to public services:
+  - Place search: your query is sent to Apple Maps, OpenStreetMap Nominatim and Komoot Photon;
+  - Route planning: start / destination coordinates are sent to Apple Maps and public OSRM servers (`router.project-osrm.org`, `routing.openstreetmap.de`);
+  - Auto-roaming: nearby POI lookup goes through Apple Maps.
+  
+  These public services are rate-limited — please don't hammer them.
 - **Clean & Open Source**: Zero telemetry, zero private unauthorized APIs, completely transparent.
 
 ---
